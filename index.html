@@ -1,8 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="WordGrid Blitz — найди все слова, и поле будет расти!">
 <title>WordGrid Blitz</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -31,6 +32,7 @@ h1 {
   color: #6b7280;
   margin-bottom: 18px;
   font-size: 0.9rem;
+  text-align: center;
 }
 
 .hud {
@@ -55,16 +57,6 @@ h1 {
   color: #a78bfa;
 }
 
-.hud-value.timer-warn {
-  color: #ef4444;
-  animation: blink 0.5s infinite alternate;
-}
-
-@keyframes blink {
-  from { opacity: 1; }
-  to   { opacity: 0.4; }
-}
-
 .game-area {
   display: flex;
   gap: 28px;
@@ -73,10 +65,16 @@ h1 {
   justify-content: center;
 }
 
+/* scrollable wrapper so the grid can grow beyond viewport */
+.grid-wrap {
+  overflow-x: auto;
+  max-width: 98vw;
+}
+
 .grid {
   display: grid;
-  grid-template-columns: repeat(12, 42px);
-  gap: 3px;
+  grid-template-columns: repeat(12, 36px);
+  gap: 2px;
   background: #1a1a2e;
   padding: 10px;
   border-radius: 12px;
@@ -86,14 +84,14 @@ h1 {
 }
 
 .cell {
-  width: 42px;
-  height: 42px;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.95rem;
+  font-size: 0.82rem;
   font-weight: 700;
-  border-radius: 6px;
+  border-radius: 5px;
   cursor: pointer;
   background: #1e1e3a;
   color: #c4b5fd;
@@ -117,13 +115,20 @@ h1 {
   border-color: #3b82f6;
 }
 
-.cell.found-pop {
-  animation: pop 0.35s ease-out;
-}
+.cell.found-pop { animation: pop 0.35s ease-out; }
 
 @keyframes pop {
   0%   { transform: scale(1.35); background: #06b6d4; }
   100% { transform: scale(1); }
+}
+
+/* green flash for new row/column after expansion */
+.cell.new-area { animation: newGlow 1.4s ease-out; }
+
+@keyframes newGlow {
+  0%   { background: #064e3b; border-color: #10b981; }
+  60%  { background: #1a2e24; border-color: #10b981; }
+  100% { background: #1e1e3a; border-color: #2d2d4e; }
 }
 
 /* words panel */
@@ -133,6 +138,8 @@ h1 {
   border-radius: 12px;
   padding: 18px 20px;
   min-width: 210px;
+  max-height: 600px;
+  overflow-y: auto;
   box-shadow: 0 0 30px rgba(124,58,237,0.1);
 }
 
@@ -162,6 +169,18 @@ h1 {
   background: #1e1e3a;
   border: 1px solid #2d2d4e;
   transition: all 0.25s;
+}
+
+/* newly added bonus word highlight */
+.word-item.word-new {
+  border-color: #10b981;
+  background: #0d2e22;
+  animation: wordAppear 1.2s ease-out forwards;
+}
+
+@keyframes wordAppear {
+  0%   { border-color: #10b981; background: #064e3b; }
+  100% { border-color: #2d2d4e; background: #1e1e3a; }
 }
 
 .word-item .word-name {
@@ -266,167 +285,279 @@ h1 {
 <body>
 
 <h1>WORDGRID BLITZ</h1>
-<p class="subtitle">Find all hidden words — any direction — before time runs out!</p>
+<p class="subtitle">Находи слова в любом направлении — каждое найденное расширяет поле!</p>
 
 <div class="hud">
   <div class="hud-item">
-    <div class="hud-label">Score</div>
+    <div class="hud-label">Очки</div>
     <div class="hud-value" id="score">0</div>
   </div>
   <div class="hud-item">
-    <div class="hud-label">Time</div>
-    <div class="hud-value" id="timer">120</div>
+    <div class="hud-label">Найдено</div>
+    <div class="hud-value" id="found-count">0 / 8</div>
   </div>
   <div class="hud-item">
-    <div class="hud-label">Found</div>
-    <div class="hud-value" id="found-count">0 / 8</div>
+    <div class="hud-label">Сетка</div>
+    <div class="hud-value" id="grid-size">12×12</div>
   </div>
 </div>
 
 <div class="game-area">
-  <div class="grid" id="grid"></div>
+  <div class="grid-wrap"><div class="grid" id="grid"></div></div>
   <div class="words-panel">
-    <div class="theme-badge" id="theme-badge">THEME</div>
-    <h3>Find These Words</h3>
+    <div class="theme-badge" id="theme-badge">ТЕМА</div>
+    <h3>Найди слова</h3>
     <div id="word-list"></div>
   </div>
 </div>
 
 <div class="overlay" id="overlay"></div>
 <div class="modal" id="modal">
-  <h2 id="modal-title">Time's Up!</h2>
+  <h2 id="modal-title">Победа!</h2>
   <div class="big-score" id="modal-score">0</div>
   <div class="sub" id="modal-sub"></div>
-  <button class="btn" onclick="newGame()">Play Again</button>
+  <button class="btn" onclick="newGame()">Играть снова</button>
 </div>
 
 <script>
-const GRID_SIZE = 12;
-const TIME_LIMIT = 120;
-
-const DIRS = [
-  [0,1],[0,-1],[1,0],[-1,0],[1,1],[1,-1],[-1,1],[-1,-1]
-];
+const INITIAL_SIZE = 12;
+const DIRS = [[0,1],[0,-1],[1,0],[-1,0],[1,1],[1,-1],[-1,1],[-1,-1]];
+const CYRILLIC = 'АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩАЕИОУАЕИОУНРСТ';
 
 const THEMES = [
   {
-    name: "SPACE",
+    name: "КОСМОС",
     words: [
-      { word:"NEBULA",   clue:"Cosmic gas cloud" },
-      { word:"COMET",    clue:"Icy space traveler" },
-      { word:"PULSAR",   clue:"Spinning neutron star" },
-      { word:"GALAXY",   clue:"Billions of stars" },
-      { word:"QUASAR",   clue:"Distant bright core" },
-      { word:"ORBIT",    clue:"Path around a star" },
-      { word:"METEOR",   clue:"Shooting star" },
-      { word:"TITAN",    clue:"Saturn's largest moon" },
+      { word:"КОМЕТА",    clue:"Ледяной странник" },
+      { word:"ПУЛЬСАР",   clue:"Вращающаяся звезда" },
+      { word:"ГАЛАКТИКА", clue:"Миллиарды звёзд" },
+      { word:"ОРБИТА",    clue:"Путь вокруг звезды" },
+      { word:"МЕТЕОР",    clue:"Падающая звезда" },
+      { word:"ПЛАНЕТА",   clue:"Вращается вокруг звезды" },
+      { word:"СПУТНИК",   clue:"Луна или аппарат" },
+      { word:"АСТЕРОИД",  clue:"Каменный обломок" },
+    ],
+    bonus: [
+      { word:"СОЛНЦЕ",    clue:"Наша звезда" },
+      { word:"РАКЕТА",    clue:"Путь в небо" },
+      { word:"ТУМАН",     clue:"Космическая мгла" },
+      { word:"ЗАТМЕНИЕ",  clue:"Закрытое светило" },
+      { word:"КРАТЕР",    clue:"След от удара" },
+      { word:"ФОТОН",     clue:"Частица света" },
+      { word:"ЗВЕЗДА",    clue:"Источник тепла" },
+      { word:"ПРОТОН",    clue:"Частица ядра" },
     ]
   },
   {
-    name: "OCEAN",
+    name: "ОКЕАН",
     words: [
-      { word:"CORAL",    clue:"Reef builder" },
-      { word:"NARWHAL",  clue:"Unicorn of the sea" },
-      { word:"KELP",     clue:"Giant seaweed" },
-      { word:"ABYSS",    clue:"The deep dark" },
-      { word:"SQUID",    clue:"Eight arms? No, ten!" },
-      { word:"TRENCH",   clue:"Deepest ocean dip" },
-      { word:"PLANKTON", clue:"Tiny ocean drifters" },
-      { word:"URCHIN",   clue:"Spiky sea creature" },
+      { word:"КОРАЛЛ",    clue:"Строитель рифов" },
+      { word:"АКУЛА",     clue:"Морской хищник" },
+      { word:"ОСЬМИНОГ",  clue:"Восемь щупалец" },
+      { word:"МЕДУЗА",    clue:"Морское желе" },
+      { word:"ГЛУБИНА",   clue:"Морская бездна" },
+      { word:"ТЕЧЕНИЕ",   clue:"Морской поток" },
+      { word:"ПРИБОЙ",    clue:"Удары волн" },
+      { word:"ТАЙФУН",    clue:"Морской ураган" },
+    ],
+    bonus: [
+      { word:"ВОЛНА",     clue:"Порыв воды" },
+      { word:"АЙСБЕРГ",   clue:"Ледяная гора" },
+      { word:"ШТИЛЬ",     clue:"Морской покой" },
+      { word:"КАЛЬМАР",   clue:"Десять щупалец" },
+      { word:"МИДИЯ",     clue:"Морской моллюск" },
+      { word:"ДЕЛЬФИН",   clue:"Умный пловец" },
+      { word:"ШТОРМ",     clue:"Буря на море" },
+      { word:"МОРЖ",      clue:"Усатый северянин" },
     ]
   },
   {
-    name: "MYTHOLOGY",
+    name: "МИФОЛОГИЯ",
     words: [
-      { word:"ZEUS",     clue:"King of Olympus" },
-      { word:"MEDUSA",   clue:"Stone-cold gaze" },
-      { word:"SPHINX",   clue:"Riddle master" },
-      { word:"HYDRA",    clue:"Many-headed beast" },
-      { word:"APOLLO",   clue:"God of the sun" },
-      { word:"PHOENIX",  clue:"Rises from ashes" },
-      { word:"MINOTAUR", clue:"Labyrinth dweller" },
-      { word:"HERMES",   clue:"Messenger god" },
+      { word:"ПЕРУН",     clue:"Бог грома" },
+      { word:"ВЕЛЕС",     clue:"Бог скота и мудрости" },
+      { word:"РУСАЛКА",   clue:"Речная дева" },
+      { word:"ДОМОВОЙ",   clue:"Дух дома" },
+      { word:"ЛЕШИЙ",     clue:"Дух леса" },
+      { word:"КИКИМОРА",  clue:"Злой домашний дух" },
+      { word:"АЛКОНОСТ",  clue:"Птица рая" },
+      { word:"СИРИН",     clue:"Птица с ликом девы" },
+    ],
+    bonus: [
+      { word:"КОЩЕЙ",     clue:"Бессмертный злодей" },
+      { word:"ВАСИЛИСА",  clue:"Мудрая царевна" },
+      { word:"МОРОЗ",     clue:"Дед зимы" },
+      { word:"БЕРЕГИНЯ",  clue:"Хранительница дома" },
+      { word:"КОЛЯДА",    clue:"Зимний праздник" },
+      { word:"ЯРИЛО",     clue:"Бог солнца" },
+      { word:"МАВКА",     clue:"Лесной дух" },
+      { word:"СТРИБОГ",   clue:"Бог ветра" },
     ]
   },
   {
-    name: "TECH",
+    name: "ПРИРОДА",
     words: [
-      { word:"KERNEL",   clue:"OS core" },
-      { word:"PIXEL",    clue:"Screen's tiny dot" },
-      { word:"CACHE",    clue:"Fast memory" },
-      { word:"ROUTER",   clue:"Network traffic cop" },
-      { word:"VECTOR",   clue:"Direction + magnitude" },
-      { word:"BINARY",   clue:"Just ones and zeros" },
-      { word:"CODEC",    clue:"Encodes / decodes" },
-      { word:"SYNTAX",   clue:"Code grammar rules" },
+      { word:"ТАЙГА",     clue:"Хвойный лес" },
+      { word:"ТУНДРА",    clue:"Бескрайние просторы" },
+      { word:"СТЕПЬ",     clue:"Бескрайние поля" },
+      { word:"ОЗЕРО",     clue:"Тихая вода" },
+      { word:"СОСНА",     clue:"Хвойное дерево" },
+      { word:"БЕРЕЗА",    clue:"Белая красавица" },
+      { word:"БОЛОТО",    clue:"Топкое место" },
+      { word:"ВУЛКАН",    clue:"Огненная гора" },
+    ],
+    bonus: [
+      { word:"ЕЛЬНИК",    clue:"Еловый лес" },
+      { word:"ДУБРАВА",   clue:"Дубовый лес" },
+      { word:"ПОЛЯНА",    clue:"Лесная опушка" },
+      { word:"ДОЛИНА",    clue:"Между горами" },
+      { word:"ЛИВЕНЬ",    clue:"Сильный дождь" },
+      { word:"БУРАН",     clue:"Снежная буря" },
+      { word:"ГЕЙЗЕР",    clue:"Горячий фонтан" },
+      { word:"ОБРЫВ",     clue:"Крутой берег" },
     ]
   }
 ];
 
-// ─── State ──────────────────────────────────────────────────────────────────
-let grid = [];
-let words = [];
-let foundWords = new Set();
-let score = 0;
-let timeLeft = TIME_LIMIT;
-let timerInterval = null;
-let selecting = false;
-let startCell = null;
+// ─── State ───────────────────────────────────────────────────────────────────
+let grid        = [];
+let currentSize = INITIAL_SIZE;
+let allWords    = [];     // initial + bonus words added to grid so far
+let bonusPool   = [];     // bonus words not yet placed
+let foundWords  = new Set();
+let foundCellSet = new Set(); // "r,c" strings — survives re-render
+let wordCellSet  = new Set(); // "r,c" of every cell that belongs to any placed word
+let score       = 0;
+let selecting   = false;
+let startCell   = null;
 let selectedCells = [];
+let lastNewRow  = -1;
+let lastNewCol  = -1;
 
-// ─── Grid generation ────────────────────────────────────────────────────────
-function canPlace(g, word, r, c, dir) {
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+function randomLetter() {
+  return CYRILLIC[Math.floor(Math.random() * CYRILLIC.length)];
+}
+
+function canPlace(word, r, c, dir) {
   const [dr, dc] = dir;
   for (let i = 0; i < word.length; i++) {
     const nr = r + dr * i, nc = c + dc * i;
-    if (nr < 0 || nr >= GRID_SIZE || nc < 0 || nc >= GRID_SIZE) return false;
-    if (g[nr][nc] !== null && g[nr][nc] !== word[i]) return false;
+    if (nr < 0 || nr >= grid.length || nc < 0 || nc >= grid[0].length) return false;
+    if (grid[nr][nc] !== null && grid[nr][nc] !== word[i]) return false;
   }
   return true;
 }
 
-function placeWord(g, word, r, c, dir) {
+function placeWordFn(word, r, c, dir) {
   const [dr, dc] = dir;
-  const cells = [];
   for (let i = 0; i < word.length; i++) {
     const nr = r + dr * i, nc = c + dc * i;
-    g[nr][nc] = word[i];
-    cells.push([nr, nc]);
+    grid[nr][nc] = word[i];
+    wordCellSet.add(`${nr},${nc}`);
   }
-  return cells;
 }
 
-function buildGrid(wordList) {
-  const g = Array.from({ length: GRID_SIZE }, () => Array(GRID_SIZE).fill(null));
-  // longest first → easier to fit
-  const sorted = [...wordList].sort((a, b) => b.length - a.length);
-  for (const word of sorted) {
+function fillNulls() {
+  for (let r = 0; r < grid.length; r++)
+    for (let c = 0; c < grid[r].length; c++)
+      if (grid[r][c] === null) grid[r][c] = randomLetter();
+}
+
+// ─── Grid generation ─────────────────────────────────────────────────────────
+function buildInitialGrid(wordList) {
+  grid = Array.from({ length: currentSize }, () => Array(currentSize).fill(null));
+  for (const word of [...wordList].sort((a, b) => b.length - a.length)) {
     let placed = false;
     for (let t = 0; t < 300 && !placed; t++) {
       const dir = DIRS[Math.floor(Math.random() * DIRS.length)];
-      const r = Math.floor(Math.random() * GRID_SIZE);
-      const c = Math.floor(Math.random() * GRID_SIZE);
-      if (canPlace(g, word, r, c, dir)) {
-        placeWord(g, word, r, c, dir);
+      const r   = Math.floor(Math.random() * currentSize);
+      const c   = Math.floor(Math.random() * currentSize);
+      if (canPlace(word, r, c, dir)) { placeWordFn(word, r, c, dir); placed = true; }
+    }
+  }
+  fillNulls();
+}
+
+// Expansion placement: can overwrite random filler cells, but NOT existing word cells
+// (unless the letter happens to match — natural overlap).
+function canPlaceExpansion(word, r, c, dir) {
+  const [dr, dc] = dir;
+  for (let i = 0; i < word.length; i++) {
+    const nr = r + dr * i, nc = c + dc * i;
+    if (nr < 0 || nr >= grid.length || nc < 0 || nc >= grid[0].length) return false;
+    if (wordCellSet.has(`${nr},${nc}`) && grid[nr][nc] !== word[i]) return false;
+  }
+  return true;
+}
+
+// True if at least one letter of the word lands in the new row or new column.
+function touchesNewArea(word, r, c, dir) {
+  const [dr, dc] = dir;
+  for (let i = 0; i < word.length; i++) {
+    const nr = r + dr * i, nc = c + dc * i;
+    if (nr === lastNewRow || nc === lastNewCol) return true;
+  }
+  return false;
+}
+
+// Expand by 1 row + 1 column and place next bonus word spanning new → old area
+function expandGrid() {
+  if (bonusPool.length === 0) return;
+
+  const oldSize = currentSize;
+  currentSize++;
+  lastNewRow = oldSize;
+  lastNewCol = oldSize;
+
+  // extend each existing row with one null cell (new column)
+  for (let r = 0; r < oldSize; r++) grid[r].push(null);
+  // add new row (all null)
+  grid.push(Array(currentSize).fill(null));
+
+  const wordObj = bonusPool.shift();
+  allWords.push(wordObj);
+
+  let placed = false;
+
+  // Phase 1 (400 tries): word must touch new row/column AND can extend into old area
+  for (let attempt = 0; attempt < 400 && !placed; attempt++) {
+    const dir = DIRS[Math.floor(Math.random() * DIRS.length)];
+    const r   = Math.floor(Math.random() * currentSize);
+    const c   = Math.floor(Math.random() * currentSize);
+    if (canPlaceExpansion(wordObj.word, r, c, dir) && touchesNewArea(wordObj.word, r, c, dir)) {
+      placeWordFn(wordObj.word, r, c, dir);
+      placed = true;
+    }
+  }
+
+  // Phase 2 fallback (200 tries): anywhere in grid
+  if (!placed) {
+    for (let attempt = 0; attempt < 200 && !placed; attempt++) {
+      const dir = DIRS[Math.floor(Math.random() * DIRS.length)];
+      const r   = Math.floor(Math.random() * currentSize);
+      const c   = Math.floor(Math.random() * currentSize);
+      if (canPlaceExpansion(wordObj.word, r, c, dir)) {
+        placeWordFn(wordObj.word, r, c, dir);
         placed = true;
       }
     }
   }
-  const alpha = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-  for (let r = 0; r < GRID_SIZE; r++)
-    for (let c = 0; c < GRID_SIZE; c++)
-      if (g[r][c] === null) g[r][c] = alpha[Math.floor(Math.random() * 26)];
-  return g;
+
+  fillNulls();
 }
 
-// ─── Render ──────────────────────────────────────────────────────────────────
+// ─── Render ───────────────────────────────────────────────────────────────────
 function renderGrid() {
   const el = document.getElementById('grid');
+  el.style.gridTemplateColumns = `repeat(${currentSize}, 36px)`;
   el.innerHTML = '';
-  for (let r = 0; r < GRID_SIZE; r++) {
-    for (let c = 0; c < GRID_SIZE; c++) {
+  for (let r = 0; r < currentSize; r++) {
+    for (let c = 0; c < currentSize; c++) {
       const cell = document.createElement('div');
       cell.className = 'cell';
+      if (foundCellSet.has(`${r},${c}`)) cell.classList.add('found');
+      if (r === lastNewRow || c === lastNewCol) cell.classList.add('new-area');
       cell.textContent = grid[r][c];
       cell.dataset.r = r;
       cell.dataset.c = c;
@@ -439,19 +570,23 @@ function renderGrid() {
   }
 }
 
-function renderWordList() {
+function renderWordList(newWord) {
   const el = document.getElementById('word-list');
   el.innerHTML = '';
-  words.forEach(w => {
+  allWords.forEach(w => {
     const item = document.createElement('div');
-    item.className = 'word-item';
+    item.className = 'word-item' +
+      (foundWords.has(w.word)  ? ' found-word' : '') +
+      (w.word === newWord      ? ' word-new'   : '');
     item.dataset.word = w.word;
     item.innerHTML = `<div class="word-name">${w.word}</div><div class="clue">${w.clue}</div>`;
     el.appendChild(item);
   });
+  // scroll newly added word into view
+  if (newWord) el.lastElementChild?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
-// ─── Selection ───────────────────────────────────────────────────────────────
+// ─── Selection ────────────────────────────────────────────────────────────────
 function cellEl(r, c) {
   return document.querySelector(`.cell[data-r="${r}"][data-c="${c}"]`);
 }
@@ -460,54 +595,38 @@ function clearSelecting() {
   document.querySelectorAll('.cell.selecting').forEach(el => el.classList.remove('selecting'));
 }
 
-function onDown(e) {
-  e.preventDefault();
-  startSelection(+e.target.dataset.r, +e.target.dataset.c);
-}
-
-function onOver(e) {
-  if (!selecting) return;
-  extendSelection(+e.target.dataset.r, +e.target.dataset.c);
-}
+function onDown(e) { e.preventDefault(); startSelection(+e.target.dataset.r, +e.target.dataset.c); }
+function onOver(e) { if (!selecting) return; extendSelection(+e.target.dataset.r, +e.target.dataset.c); }
 
 function onTouchStart(e) {
   e.preventDefault();
-  const t = e.touches[0];
-  const el = document.elementFromPoint(t.clientX, t.clientY);
+  const t = e.touches[0], el = document.elementFromPoint(t.clientX, t.clientY);
   if (el?.dataset?.r !== undefined) startSelection(+el.dataset.r, +el.dataset.c);
 }
-
 function onTouchMove(e) {
   e.preventDefault();
   if (!selecting) return;
-  const t = e.touches[0];
-  const el = document.elementFromPoint(t.clientX, t.clientY);
+  const t = e.touches[0], el = document.elementFromPoint(t.clientX, t.clientY);
   if (el?.dataset?.r !== undefined) extendSelection(+el.dataset.r, +el.dataset.c);
 }
 
 function startSelection(r, c) {
-  selecting = true;
-  startCell = [r, c];
-  clearSelecting();
-  selectedCells = [[r, c]];
-  cellEl(r, c)?.classList.add('selecting');
+  selecting = true; startCell = [r, c]; clearSelecting();
+  selectedCells = [[r, c]]; cellEl(r, c)?.classList.add('selecting');
 }
 
 function extendSelection(r, c) {
   if (!startCell) return;
   const [sr, sc] = startCell;
   const dr = r - sr, dc = c - sc;
-
   let dir = null;
-  if (dr === 0 && dc !== 0)               dir = [0, Math.sign(dc)];
+  if      (dr === 0 && dc !== 0)          dir = [0, Math.sign(dc)];
   else if (dc === 0 && dr !== 0)          dir = [Math.sign(dr), 0];
   else if (Math.abs(dr) === Math.abs(dc)) dir = [Math.sign(dr), Math.sign(dc)];
   if (!dir) return;
-
   const steps = Math.max(Math.abs(dr), Math.abs(dc));
   const cells = [];
   for (let i = 0; i <= steps; i++) cells.push([sr + dir[0]*i, sc + dir[1]*i]);
-
   clearSelecting();
   selectedCells = cells;
   cells.forEach(([cr, cc]) => cellEl(cr, cc)?.classList.add('selecting'));
@@ -519,20 +638,28 @@ function finishSelection() {
 
   const word    = selectedCells.map(([r,c]) => grid[r][c]).join('');
   const wordRev = [...word].reverse().join('');
-
-  const match = words.find(w => !foundWords.has(w.word) && (w.word === word || w.word === wordRev));
+  const match   = allWords.find(w => !foundWords.has(w.word) && (w.word === word || w.word === wordRev));
 
   if (match) {
     foundWords.add(match.word);
     const pts = match.word.length * 10;
     score += pts;
-    updateHUD();
     markFoundCells(selectedCells);
     markFoundWord(match.word);
     spawnScoreFloat(pts, selectedCells);
-    if (foundWords.size === words.length) {
-      clearInterval(timerInterval);
-      setTimeout(showWin, 500);
+
+    let newWordName = null;
+    if (bonusPool.length > 0) {
+      expandGrid();                       // grows grid + pulls 1 bonus word
+      newWordName = allWords[allWords.length - 1].word;
+      renderGrid();
+      renderWordList(newWordName);
+    }
+
+    updateHUD();
+
+    if (foundWords.size === allWords.length && bonusPool.length === 0) {
+      setTimeout(showWin, 600);
     }
   } else {
     clearSelecting();
@@ -543,6 +670,7 @@ function finishSelection() {
 function markFoundCells(cells) {
   clearSelecting();
   cells.forEach(([r,c]) => {
+    foundCellSet.add(`${r},${c}`);
     const el = cellEl(r, c);
     if (!el) return;
     el.classList.add('found', 'found-pop');
@@ -561,91 +689,63 @@ function spawnScoreFloat(pts, cells) {
   const el = cellEl(...mid);
   if (!el) return;
   const rect = el.getBoundingClientRect();
-  const div = document.createElement('div');
-  div.className = 'score-float';
-  div.textContent = `+${pts}`;
-  div.style.left = `${rect.left + rect.width/2 - 20}px`;
-  div.style.top  = `${rect.top + window.scrollY}px`;
+  const div = Object.assign(document.createElement('div'), {
+    className: 'score-float', textContent: `+${pts}`
+  });
+  div.style.cssText = `left:${rect.left + rect.width/2 - 20}px;top:${rect.top + window.scrollY}px`;
   document.body.appendChild(div);
   setTimeout(() => div.remove(), 1000);
 }
 
-// ─── HUD ─────────────────────────────────────────────────────────────────────
+// ─── HUD ──────────────────────────────────────────────────────────────────────
 function updateHUD() {
-  document.getElementById('score').textContent = score;
-  document.getElementById('found-count').textContent = `${foundWords.size} / ${words.length}`;
+  document.getElementById('score').textContent      = score;
+  document.getElementById('found-count').textContent = `${foundWords.size} / ${allWords.length}`;
+  document.getElementById('grid-size').textContent  = `${currentSize}×${currentSize}`;
 }
 
-function updateTimer() {
-  const el = document.getElementById('timer');
-  el.textContent = timeLeft;
-  el.className = 'hud-value' + (timeLeft <= 15 ? ' timer-warn' : '');
-}
-
-function tick() {
-  timeLeft--;
-  updateTimer();
-  if (timeLeft <= 0) { clearInterval(timerInterval); showGameOver(); }
-}
-
-// ─── Modal ───────────────────────────────────────────────────────────────────
+// ─── Modal ────────────────────────────────────────────────────────────────────
 function showModal(title, scoreLine, sub) {
   document.getElementById('modal-title').textContent = title;
   document.getElementById('modal-score').textContent = scoreLine;
-  document.getElementById('modal-sub').innerHTML = sub;
+  document.getElementById('modal-sub').innerHTML     = sub;
   document.getElementById('overlay').classList.add('show');
   document.getElementById('modal').classList.add('show');
 }
-
 function hideModal() {
   document.getElementById('overlay').classList.remove('show');
   document.getElementById('modal').classList.remove('show');
 }
 
 function showWin() {
-  const bonus = timeLeft * 5;
-  score += bonus;
-  updateHUD();
-  showModal(
-    '🎉 You Win!',
-    score,
-    `All ${words.length} words found!<br>Time bonus: <strong>+${bonus}</strong> pts`
-  );
-}
-
-function showGameOver() {
-  showModal(
-    "Time's Up!",
-    score,
-    `Found <strong>${foundWords.size}</strong> of <strong>${words.length}</strong> words`
-  );
+  showModal('🎉 Победа!', score, `Все ${allWords.length} слов найдены!`);
 }
 
 // ─── Game init ────────────────────────────────────────────────────────────────
 function newGame() {
   hideModal();
   foundWords.clear();
+  foundCellSet.clear();
+  wordCellSet.clear();
   score = 0;
-  timeLeft = TIME_LIMIT;
+  currentSize = INITIAL_SIZE;
   selectedCells = [];
   selecting = false;
+  lastNewRow = -1;
+  lastNewCol = -1;
 
   const theme = THEMES[Math.floor(Math.random() * THEMES.length)];
-  words = theme.words;
+  allWords  = [...theme.words];
+  bonusPool = [...theme.bonus];
   document.getElementById('theme-badge').textContent = theme.name;
 
-  grid = buildGrid(words.map(w => w.word));
+  buildInitialGrid(allWords.map(w => w.word));
   renderGrid();
-  renderWordList();
+  renderWordList(null);
   updateHUD();
-  updateTimer();
-
-  clearInterval(timerInterval);
-  timerInterval = setInterval(tick, 1000);
 }
 
-// Global mouseup / touchend to finish any drag
-document.addEventListener('mouseup', finishSelection);
+document.addEventListener('mouseup',  finishSelection);
 document.addEventListener('touchend', finishSelection);
 
 newGame();
